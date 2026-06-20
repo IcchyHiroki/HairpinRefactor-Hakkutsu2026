@@ -3,10 +3,16 @@ import { serve } from '@hono/node-server'
 import { cors } from 'hono/cors'
 import { WebSocketServer, WebSocket } from 'ws'
 import { IncomingMessage } from 'http'
-import { startGame, getSession, nfcTap, updateRunDistance, getResult } from './game.js'
+import { startGame, getSession, nfcTap, updateRunDistance, getResult, getCurrentSessionId } from './game.js'
 
 const app = new Hono()
 app.use('*', cors())
+
+app.get('/api/game/current', (c) => {
+  const sessionId = getCurrentSessionId()
+  if (!sessionId) return c.json({ error: 'No active session' }, 404)
+  return c.json({ sessionId })
+})
 
 app.post('/api/game/start', async (c) => {
   const result = startGame()

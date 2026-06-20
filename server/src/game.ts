@@ -90,6 +90,13 @@ export function updateRunDistance(sessionId: string, distanceMeters: number): bo
   return true
 }
 
+export function getCurrentSessionId(): string | null {
+  for (const [id, session] of sessions) {
+    if (session.status === 'active') return id
+  }
+  return null
+}
+
 export function getResult(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return null
