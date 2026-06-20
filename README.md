@@ -15,6 +15,8 @@ K8s の Deployment/ReplicaSet による即時 Pod 補充を回避し、Pod 削�
 ### クイックスタート
 
 ```bash
+# K8s環境を立ち上げる
+minikube start
 # CRD をインストール
 kubectl apply --server-side -f config/crd/bases/
 
