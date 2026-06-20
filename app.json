@@ -1,0 +1,13 @@
+{
+  "package_id": "jp.hioki.heritage-guide",
+  "edition": "202601",
+  "name": "Heritage Guide",
+  "version": "0.1.0",
+  "min_app_version": "0.1.0",
+  "min_sdk_version": "0.0.10",
+  "permissions": ["g2-microphone"],
+  "tagline": "NFC文化財ガイド-test",
+  "description": "...",
+  "author": "Hiroki Ichikura",
+  "entrypoint": "index.html"
+}

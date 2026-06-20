@@ -21,15 +21,21 @@ go.work
 
 # editor and IDE paraphernalia
 .idea
-.vscode
+.vscode/*
+!.vscode/extensions.json
 *.swp
 *.swo
 *~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # Kubeconfig might contain secrets
 *.kubeconfig
 
-# Even G2 / Hairpin project
+# Node / Even G2 / Hairpin project
 node_modules
 dist
 dist-ssr
@@ -43,3 +49,5 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+.DS_Store

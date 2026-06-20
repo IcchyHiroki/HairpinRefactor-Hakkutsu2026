@@ -1,31 +1,32 @@
-# Build the manager binary
-FROM golang:1.26 AS builder
-ARG TARGETOS
-ARG TARGETARCH
+FROM node:22-alpine AS build
+WORKDIR /app
 
-WORKDIR /workspace
-# Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
-RUN go mod download
+# Root dependencies (frontend)
+COPY package*.json ./
+RUN npm ci
 
-# Copy the Go source (relies on .dockerignore to filter)
+# Server dependencies
+COPY server/package*.json ./server/
+RUN cd server && npm ci
+
+# Copy all sources
 COPY . .
 
-# Build
-# the GOARCH has no default value to allow the binary to be built according to the host where the command
-# was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
-# the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
-# by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+# Build frontend
+RUN npm run build
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
-WORKDIR /
-COPY --from=builder /workspace/manager .
-USER 65532:65532
+FROM node:22-alpine
+RUN apk add --no-cache kubectl curl
+WORKDIR /app
 
-ENTRYPOINT ["/manager"]
+# Frontend dist
+COPY --from=build /app/dist ./dist
+
+# Server + its node_modules
+COPY --from=build /app/server ./server
+
+# Root package.json for reference
+COPY package*.json ./
+
+EXPOSE 3000
+CMD ["npx", "--prefix", "/app/server", "tsx", "/app/server/src/index.ts"]
