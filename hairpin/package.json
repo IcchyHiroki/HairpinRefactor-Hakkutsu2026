@@ -8,9 +8,11 @@
     "mock": "vite --config vite.mock.config.ts",
     "sim": "evenhub-simulator http://localhost:5173",
     "build": "tsc && vite build",
+    "serve": "node server/src/index.ts",
     "pack": "evenhub pack app.json dist -o heritage-guide.ehpk",
     "qr": "evenhub qr -p 5173",
-    "qr:mock": "evenhub qr -p 5174 --path /mock.html"
+    "qr:mock": "evenhub qr -p 5174 --path /mock.html",
+    "docker-start": "node server/src/index.ts"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.13",

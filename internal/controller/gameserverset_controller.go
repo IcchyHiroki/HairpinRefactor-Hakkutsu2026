@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -102,19 +104,21 @@ func (r *GameServerSetReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	activeCount := int32(len(activePods))
 	if activeCount < replicas {
-		desiredNew := replicas - activeCount
-		log.Info("Creating new pods", "count", desiredNew, "active", activeCount, "desired", replicas)
-		for i := int32(0); i < desiredNew; i++ {
-			pod := buildPod(gss)
-			if err := ctrl.SetControllerReference(gss, pod, r.Scheme); err != nil {
-				log.Error(err, "Failed to set controller reference")
-				return ctrl.Result{}, err
-			}
-			if err := r.Create(ctx, pod); err != nil {
-				log.Error(err, "Failed to create pod")
-				return ctrl.Result{}, err
-			}
+		usedIndices := buildUsedIndexSet(activePods)
+		nextIdx := int32(0)
+		for usedIndices[nextIdx] {
+			nextIdx++
 		}
+		pod := buildPod(gss, int(nextIdx))
+		if err := ctrl.SetControllerReference(gss, pod, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference")
+			return ctrl.Result{}, err
+		}
+		if err := r.Create(ctx, pod); err != nil {
+			log.Error(err, "Failed to create pod")
+			return ctrl.Result{}, err
+		}
+		log.Info("Created 1 pod", "index", nextIdx, "active", activeCount, "desired", replicas)
 	}
 
 	var readyCount int32
@@ -147,12 +151,13 @@ func (r *GameServerSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func buildPod(gss *gamev1.GameServerSet) *corev1.Pod {
+func buildPod(gss *gamev1.GameServerSet, index int) *corev1.Pod {
 	labels := make(map[string]string)
 	for k, v := range gss.Spec.Template.ObjectMeta.Labels {
 		labels[k] = v
 	}
 	labels[gamev1.GameServerSetLabelKey] = gss.Name
+	labels[gamev1.GameServerSetPodIndexLabelKey] = strconv.Itoa(index)
 
 	annotations := make(map[string]string)
 	for k, v := range gss.Spec.Template.ObjectMeta.Annotations {
@@ -161,8 +166,8 @@ func buildPod(gss *gamev1.GameServerSet) *corev1.Pod {
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: gss.Name + "-",
-			Namespace:    gss.Namespace,
+			Name:      fmt.Sprintf("%s-%d", gss.Name, index),
+			Namespace: gss.Namespace,
 			Labels:       labels,
 			Annotations:  annotations,
 			Finalizers:   []string{delayFinalizer},
@@ -170,6 +175,29 @@ func buildPod(gss *gamev1.GameServerSet) *corev1.Pod {
 		Spec: gss.Spec.Template.Spec,
 	}
 	return pod
+}
+
+func extractPodIndex(pod corev1.Pod) (int, bool) {
+	val, ok := pod.Labels[gamev1.GameServerSetPodIndexLabelKey]
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(val)
+	if err != nil {
+		return 0, false
+	}
+	return i, true
+}
+
+func buildUsedIndexSet(pods []corev1.Pod) map[int32]bool {
+	used := make(map[int32]bool)
+	for _, pod := range pods {
+		idx, ok := extractPodIndex(pod)
+		if ok {
+			used[int32(idx)] = true
+		}
+	}
+	return used
 }
 
 func hasFinalizer(pod *corev1.Pod, finalizer string) bool {

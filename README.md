@@ -34,29 +34,13 @@ kubectl delete pod <gameserverset-pod-name>
 
 ## Project 2: Heritage Guide — Even G2 アプリ
 
-**パッケージID**: `jp.hioki.heritage-guide`  
-**対象デバイス**: Even Realities G2
-
-神社・文化財をその場で解説するスマートグラス向けガイドアプリ。
-
-### 画面レイアウト（G2表示領域: 576 × 288 px）
-
-```
-┌───────────────────────────────┬──────────────────────┐
-│  タイル（リスト）              │  詳細テキスト         │
-│  containerID: 1               │  containerID: 2       │
-│  x:0  y:0  w:330  h:288       │  x:340  y:0  w:236   │
-│                               │  h:288                │
-│  ① 入口の鳥居                  │  正面の鳥居は江戸期の  │
-│  ② 拝殿の彫刻                  │  再建。               │
-│  ③ 御神木                      │  左の石灯籠に注目。   │
-│  🎤 音声で質問                 │                       │
-└───────────────────────────────┴──────────────────────┘
-```
+全てのゲーム関連ファイルは `hairpin/` ディレクトリにあります。
 
 ### 開発フロー
 
 ```bash
+cd hairpin
+
 # 初回セットアップ
 npm install
 
@@ -73,14 +57,37 @@ npm run build
 npm run pack   # → heritage-guide.ehpk
 ```
 
+### K8s デプロイ
+
+ゲームサーバーは minikube 上の Deployment として動作可能。
+
+```bash
+eval $(minikube docker-env)
+cd hairpin
+docker build -t hairpin-server:latest .
+kubectl apply -k deploy/
+minikube service hairpin-server
+```
+
+### ゲームと K8s の連携
+
+ゲーム内の "pod"（目的地に紐づく仮想エンティティ）は、**実際の K8s Pod** として管理される。
+
+| 仕組み | 説明 |
+|--------|------|
+| GameServerSet CR `hairpin-game` | replicas=5 で5つの Pod を管理 |
+| Pod ラベル `game.example.com/pod-index` | 各 Pod を目的地 ID (0-4) にマッピング |
+| ゲーム進行 | 走行距離に応じて `kubectl delete pod` → 27s後復活 |
+| 復活後の同期 | `getSession()` が K8s API で Pod 生死を確認 |
+
 ### ファイル構成
 
 ```
-src/
-├── main.ts       # エントリポイント
-├── app.ts        # ステート管理 + EvenHub イベントルーティング
-└── glasses.ts    # SDK ラッパー
-app.json          # アプリメタデータ（Even App Store 用）
+hairpin/
+├── server/           # Hono + WebSocket バックエンド（K8s API連携含む）
+├── src/              # G2 グラス用フロントエンド
+├── mock/             # デスクトップモック (React)
+├── deploy/           # K8s マニフェスト
+├── Dockerfile
+└── package.json
 ```
-
-詳細は各ソースファイルのコメントを参照。

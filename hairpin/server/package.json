@@ -13,6 +13,7 @@
   "type": "module",
   "dependencies": {
     "@hono/node-server": "^2.0.5",
+    "@kubernetes/client-node": "^1.2.0",
     "hono": "^4.12.26",
     "ws": "^8.21.0"
   },

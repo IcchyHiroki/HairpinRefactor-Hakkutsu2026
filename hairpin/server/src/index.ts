@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { cors } from 'hono/cors'
+import { serveStatic } from '@hono/node-server/serve-static'
 import { WebSocketServer, WebSocket } from 'ws'
 import { IncomingMessage } from 'http'
 import { startGame, getSession, arrive, updateRunDistance } from './game.js'
@@ -8,13 +9,19 @@ import { startGame, getSession, arrive, updateRunDistance } from './game.js'
 const app = new Hono()
 app.use('*', cors())
 
+// 本番: ビルド済みフロントエンドを配信
+// dist/ に index.html, compass.html, monitor.html, src/ などが含まれる
+app.use('/*', serveStatic({ root: 'dist' }))
+// Vite が assets/ を dist/assets/ に書き出す
+app.use('/assets/*', serveStatic({ root: 'dist' }))
+
 app.post('/api/game/start', async (c) => {
   const result = startGame()
   return c.json({ sessionId: result.sessionId, destinations: result.destinations })
 })
 
-app.get('/api/game/:sessionId', (c) => {
-  const session = getSession(c.req.param('sessionId'))
+app.get('/api/game/:sessionId', async (c) => {
+  const session = await getSession(c.req.param('sessionId'))
   if (!session) return c.json({ error: 'Not found' }, 404)
   return c.json(session)
 })
@@ -27,7 +34,7 @@ app.post('/api/game/:sessionId/arrive', async (c) => {
 
 app.post('/api/game/:sessionId/run', async (c) => {
   const { distanceMeters } = await c.req.json<{ distanceMeters: number }>()
-  const result = updateRunDistance(c.req.param('sessionId'), distanceMeters)
+  const result = await updateRunDistance(c.req.param('sessionId'), distanceMeters)
   if (!result) return c.json({ error: 'Not found or game ended' }, 404)
   return c.json(result)
 })

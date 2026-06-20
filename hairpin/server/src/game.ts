@@ -1,4 +1,5 @@
 import { DESTINATIONS } from './destinations.js'
+import { deleteGamePod, checkPodStatuses } from './k8s.js'
 
 export type SessionStatus = 'active' | 'clear' | 'gameover'
 
@@ -30,17 +31,26 @@ export function startGame(): { sessionId: string; destinations: { id: number; na
   }
 }
 
-export function getSession(sessionId: string) {
+export async function getSession(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return null
+
+  // K8s Pod の実在状況を確認して alive 状態を上書きする
+  const destinationIds = DESTINATIONS.map(d => d.id)
+  const podStatuses = await checkPodStatuses(destinationIds)
+  console.log('getSession k8s podStatuses:', JSON.stringify(podStatuses))
+  // メモリ状態と K8s 実態を統合
+  const merged = DESTINATIONS.map(d => {
+    const mem = session.pods.find(p => p.id === d.id)
+    const k8s = podStatuses.find(p => p.id === d.id)
+    // メモリ上で dead なら dead。K8s Pod が存在しない場合も dead（復活ポーリング用）
+    return { id: d.id, name: d.name, alive: mem ? mem.alive && (k8s ? k8s.alive : true) : true }
+  })
+
   return {
     status: session.status,
     loadPercent: session.loadPercent,
-    destinations: DESTINATIONS.map(d => ({
-      id: d.id,
-      name: d.name,
-      alive: session.pods.find(p => p.id === d.id)?.alive ?? false,
-    })),
+    destinations: merged,
   }
 }
 
@@ -65,11 +75,11 @@ export function arrive(
   }
 }
 
-// K8s担当がここをkubectl操作に置き換える
-export function updateRunDistance(
+// K8s担当: ゲーム内podキル = K8s Pod削除
+export async function updateRunDistance(
   sessionId: string,
   distanceMetersAdded: number,
-): { terminated: { id: number; name: string }[]; loadPercent: number } | null {
+): Promise<{ terminated: { id: number; name: string }[]; loadPercent: number } | null> {
   const session = sessions.get(sessionId)
   if (!session || session.status !== 'active') return null
 
@@ -93,6 +103,11 @@ export function updateRunDistance(
     fakePods[i].alive = false
     const dest = DESTINATIONS.find(d => d.id === fakePods[i].id)!
     terminated.push({ id: dest.id, name: dest.name })
+
+    // K8s Pod を削除（非同期、結果は待たない）
+    deleteGamePod(dest.id - 1).catch((err: Error) =>
+      console.error(`k8s delete failed for destination ${dest.id}:`, err)
+    )
   }
 
   session.loadPercent = nextLoad

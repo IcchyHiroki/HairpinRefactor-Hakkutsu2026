@@ -12,7 +12,11 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      input: { main: 'index.html' },
+      input: {
+        main: 'index.html',
+        compass: 'compass.html',
+        monitor: 'monitor.html',
+      },
     },
   },
 })

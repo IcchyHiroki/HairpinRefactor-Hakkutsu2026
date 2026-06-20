@@ -12,6 +12,7 @@ const (
 	GameServerSetPodFinalizer = "gameserverset.game.example.com/delay-deletion"
 
 	GameServerSetLabelKey = "game.example.com/gameserverset-name"
+	GameServerSetPodIndexLabelKey = "game.example.com/pod-index"
 )
 
 type GameServerSetSpec struct {
