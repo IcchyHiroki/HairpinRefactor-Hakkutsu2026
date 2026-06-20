@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server'
 import { cors } from 'hono/cors'
 import { WebSocketServer, WebSocket } from 'ws'
 import { IncomingMessage } from 'http'
-import { startGame, getSession, arrive, updateRunDistance } from './game.js'
+import { startGame, getSession, nfcTap, updateRunDistance, getResult } from './game.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -19,16 +19,21 @@ app.get('/api/game/:sessionId', (c) => {
   return c.json(session)
 })
 
-app.post('/api/game/:sessionId/arrive', async (c) => {
-  const { destinationId } = await c.req.json<{ destinationId: number }>()
-  const result = arrive(c.req.param('sessionId'), destinationId)
+app.post('/api/game/:sessionId/nfc/:destinationId', (c) => {
+  const result = nfcTap(c.req.param('sessionId'), Number(c.req.param('destinationId')))
   return c.json(result)
 })
 
 app.post('/api/game/:sessionId/run', async (c) => {
   const { distanceMeters } = await c.req.json<{ distanceMeters: number }>()
-  const result = updateRunDistance(c.req.param('sessionId'), distanceMeters)
-  if (!result) return c.json({ error: 'Not found or game ended' }, 404)
+  const ok = updateRunDistance(c.req.param('sessionId'), distanceMeters)
+  if (!ok) return c.json({ error: 'Not found or game ended' }, 404)
+  return c.json({ ok: true })
+})
+
+app.get('/api/game/:sessionId/result', (c) => {
+  const result = getResult(c.req.param('sessionId'))
+  if (!result) return c.json({ error: 'Not found' }, 404)
   return c.json(result)
 })
 
