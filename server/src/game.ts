@@ -1,4 +1,5 @@
 import { DESTINATIONS } from './destinations.js'
+import { deleteGamePod, checkPodStatuses } from './k8s.js'
 
 export type SessionStatus = 'active' | 'clear' | 'gameover'
 
@@ -25,13 +26,16 @@ function randomId(): string {
 }
 
 export function startGame(): { sessionId: string; destinations: { id: number; name: string; lat: number; lng: number }[] } {
+  for (const session of sessions.values()) {
+    if (session.status === 'active') session.status = 'gameover'
+  }
   const sessionId = randomId()
   sessions.set(sessionId, {
     id: sessionId,
     status: 'active',
     pods: DESTINATIONS.map(d => ({ id: d.id, alive: true, onceFallen: false })),
     score: 0,
-    startedAt: Date.now(),
+    startedAt: 0,
     endedAt: null,
     totalDistance: 0,
   })
@@ -41,6 +45,13 @@ export function startGame(): { sessionId: string; destinations: { id: number; na
   }
 }
 
+export function beginGame(sessionId: string): boolean {
+  const session = sessions.get(sessionId)
+  if (!session || session.startedAt !== 0) return false
+  session.startedAt = Date.now()
+  return true
+}
+
 export function getSession(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return null
@@ -48,16 +59,15 @@ export function getSession(sessionId: string) {
     status: session.status,
     destinations: DESTINATIONS.map(d => {
       const pod = session.pods.find(p => p.id === d.id)!
-      return { id: d.id, name: d.name, alive: pod.alive, onceFallen: pod.onceFallen }
+      return { id: d.id, name: d.name, lat: d.lat, lng: d.lng, alive: pod.alive, onceFallen: pod.onceFallen }
     }),
   }
 }
 
-// NFCタップ：本物ならクリア、偽物なら負荷を与えてスコア加算
 export function nfcTap(
   sessionId: string,
   destinationId: number,
-): { result: 'correct' | 'fake_hit' | 'fake_bonus' | 'already_ended' | 'not_found'; score: number; message: string } {
+): { result: 'correct' | 'fake_hit' | 'fake_bonus' | 'pod_down' | 'already_ended' | 'not_found'; score: number; message: string } {
   const session = sessions.get(sessionId)
   if (!session) return { result: 'not_found', score: 0, message: 'セッションが見つかりません' }
   if (session.status !== 'active') return { result: 'already_ended', score: session.score, message: 'ゲームは既に終了しています' }
@@ -72,9 +82,19 @@ export function nfcTap(
   }
 
   const pod = session.pods.find(p => p.id === destinationId)!
+
+  if (!pod.alive) {
+    return { result: 'pod_down', score: session.score, message: 'このPodは現在落ちています。復活をお待ちください' }
+  }
+
   const isBonus = pod.onceFallen
+  pod.alive = false
   pod.onceFallen = true
   session.score += isBonus ? 2 : 1
+
+  deleteGamePod(destinationId - 1).catch((err: Error) =>
+    console.error(`k8s delete failed for destination ${destinationId}:`, err)
+  )
 
   return {
     result: isBonus ? 'fake_bonus' : 'fake_hit',
@@ -104,11 +124,35 @@ export function getResult(sessionId: string) {
   const elapsedMs = endedAt - session.startedAt
   const minutes = Math.floor(elapsedMs / 60000)
   const seconds = Math.floor((elapsedMs % 60000) / 1000)
+  const correct = DESTINATIONS.find(d => d.isReal)!
   return {
     status: session.status,
     score: session.score,
     totalDistance: Math.round(session.totalDistance),
     playTime: `${minutes}分${seconds}秒`,
     onceFallenCount: session.pods.filter(p => p.onceFallen).length,
+    correctId: correct.id,
+    correctName: correct.name,
   }
+}
+
+// K8s Podの復活を検知してalive状態を更新する
+export function startPodStatusPolling(intervalMs = 5000) {
+  setInterval(async () => {
+    for (const session of sessions.values()) {
+      if (session.status !== 'active') continue
+      const fallenPods = session.pods.filter(p => !p.alive && p.onceFallen)
+      if (fallenPods.length === 0) continue
+
+      const statuses = await checkPodStatuses(fallenPods.map(p => p.id))
+      for (const { id, alive } of statuses) {
+        if (!alive) continue
+        const pod = session.pods.find(p => p.id === id)!
+        if (!pod.alive) {
+          pod.alive = true
+          console.log(`pod ${id} revived (onceFallen)`)
+        }
+      }
+    }
+  }, intervalMs)
 }

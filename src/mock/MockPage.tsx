@@ -37,7 +37,7 @@ export function MockPage() {
     startGame().then(({ sessionId, destinations: dests }) => {
       setSessionId(sessionId)
       setDestinations(dests.map(d => ({ ...d, distanceStr: '---', arrow: '?' })))
-      setPodStatus(dests.map(d => ({ id: d.id, name: d.name, alive: true })))
+      setPodStatus(dests.map(d => ({ id: d.id, name: d.name, lat: d.lat, lng: d.lng, alive: true, onceFallen: false })))
       setPhase('playing')
     })
   }, [])
@@ -96,7 +96,7 @@ export function MockPage() {
     startGame().then(({ sessionId, destinations: dests }) => {
       setSessionId(sessionId)
       setDestinations(dests.map(d => ({ ...d, distanceStr: '---', arrow: '?' })))
-      setPodStatus(dests.map(d => ({ id: d.id, name: d.name, alive: true })))
+      setPodStatus(dests.map(d => ({ id: d.id, name: d.name, lat: d.lat, lng: d.lng, alive: true, onceFallen: false })))
       setPhase('playing')
     })
   }

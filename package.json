@@ -9,7 +9,7 @@
     "sim": "evenhub-simulator http://localhost:5173",
     "build": "tsc && vite build",
     "pack": "evenhub pack app.json dist -o heritage-guide.ehpk",
-    "qr": "evenhub qr -p 5173",
+    "qr": "evenhub qr --url https://refinance-uncombed-buffer.ngrok-free.dev",
     "qr:mock": "evenhub qr -p 5174 --path /mock.html"
   },
   "devDependencies": {

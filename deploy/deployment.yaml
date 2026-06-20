@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hairpin-server
+  namespace: default
+  labels:
+    app: hairpin-server
+spec:
+  selector:
+    matchLabels:
+      app: hairpin-server
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: hairpin-server
+    spec:
+      serviceAccountName: hairpin-server
+      containers:
+      - name: server
+        image: hairpin-server:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+          name: http

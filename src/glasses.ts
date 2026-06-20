@@ -1,6 +1,7 @@
 import {
   waitForEvenAppBridge,
   CreateStartUpPageContainer,
+  RebuildPageContainer,
   ListContainerProperty,
   ListItemContainerProperty,
   TextContainerProperty,
@@ -41,6 +42,15 @@ export async function showStartup(titles: string[], detail: string) {
   const { list, text } = buildPage(titles, detail)
   await bridge.createStartUpPageContainer(
     new CreateStartUpPageContainer({
+      containerTotalNum: 2, listObject: [list], textObject: [text], imageObject: [],
+    })
+  )
+}
+
+export async function rebuildPage(titles: string[], detail: string) {
+  const { list, text } = buildPage(titles, detail)
+  await bridge.rebuildPageContainer(
+    new RebuildPageContainer({
       containerTotalNum: 2, listObject: [list], textObject: [text], imageObject: [],
     })
   )

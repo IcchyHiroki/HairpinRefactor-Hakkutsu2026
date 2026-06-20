@@ -10,7 +10,11 @@ export type DestinationFromApi = {
 export type GameState = {
   status: 'active' | 'clear' | 'gameover'
   loadPercent: number
-  destinations: { id: number; name: string; alive: boolean }[]
+  destinations: { id: number; name: string; lat: number; lng: number; alive: boolean; onceFallen: boolean }[]
+}
+
+export async function beginGame(sessionId: string): Promise<void> {
+  await fetch(`${BASE}/game/${sessionId}/begin`, { method: 'POST' })
 }
 
 export async function startGame(): Promise<{ sessionId: string; destinations: DestinationFromApi[] }> {
@@ -20,6 +24,21 @@ export async function startGame(): Promise<{ sessionId: string; destinations: De
 
 export async function getGameState(sessionId: string): Promise<GameState> {
   const res = await fetch(`${BASE}/game/${sessionId}`)
+  return res.json()
+}
+
+export type GameResult = {
+  status: string
+  score: number
+  totalDistance: number
+  playTime: string
+  onceFallenCount: number
+  correctId: number
+  correctName: string
+}
+
+export async function getResult(sessionId: string): Promise<GameResult> {
+  const res = await fetch(`${BASE}/game/${sessionId}/result`)
   return res.json()
 }
 

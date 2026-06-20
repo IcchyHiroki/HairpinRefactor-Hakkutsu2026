@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>G2 Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #000;
+      color: #4f4;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 12px;
+    }
+    #status { font-size: 12px; color: #666; }
+    #screen {
+      display: flex;
+      gap: 8px;
+      border: 1px solid #2a5a2a;
+      border-radius: 8px;
+      padding: 8px;
+      background: #050f05;
+      /* G2解像度 576×288 を2倍で表示 */
+      width: 1152px;
+      height: 576px;
+    }
+    #left {
+      width: 660px;
+      border: 1px solid #2a5a2a;
+      border-radius: 4px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+    }
+    #right {
+      flex: 1;
+      border: 1px solid #1a4a1a;
+      border-radius: 4px;
+      padding: 12px;
+      white-space: pre;
+      font-size: 28px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    .item {
+      font-size: 24px;
+      padding: 6px 8px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      line-height: 1.4;
+    }
+    .item.selected {
+      border-color: #4f4;
+    }
+    .item.terminated {
+      color: #444;
+    }
+    #label {
+      font-size: 12px;
+      color: #2a5a2a;
+      text-align: center;
+      letter-spacing: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="label">EVEN G2 — LIVE MONITOR</div>
+  <div id="screen">
+    <div id="left"></div>
+    <div id="right">接続待機中...</div>
+  </div>
+  <div id="status">サーバーに接続中...</div>
+  <div id="debug" style="font-size:11px;color:#555;max-width:1152px;word-break:break-all;max-height:80px;overflow-y:auto;"></div>
+
+  <script>
+    const leftEl = document.getElementById('left')
+    const rightEl = document.getElementById('right')
+    const statusEl = document.getElementById('status')
+    const debugEl = document.getElementById('debug')
+
+    let ws = null
+
+    function render({ left, right, selectedIndex }) {
+      leftEl.innerHTML = ''
+      left.forEach((title, i) => {
+        const div = document.createElement('div')
+        div.className = 'item' +
+          (i === selectedIndex ? ' selected' : '') +
+          (title.startsWith('×') ? ' terminated' : '')
+        div.textContent = title
+        div.style.cursor = 'pointer'
+        div.addEventListener('click', () => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ select: i }))
+          }
+        })
+        leftEl.appendChild(div)
+      })
+      rightEl.textContent = right
+    }
+
+    function connect() {
+      const wsUrl = location.origin.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/monitor'
+      ws = new WebSocket(wsUrl)
+      ws.onopen = () => statusEl.textContent = '接続済み ✓'
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          if (data.debug !== undefined) {
+            debugEl.textContent = 'event: ' + data.debug
+          } else {
+            render(data)
+          }
+        } catch {}
+      }
+      ws.onclose = () => {
+        statusEl.textContent = '再接続中...'
+        setTimeout(connect, 2000)
+      }
+    }
+    connect()
+  </script>
+</body>
+</html>
