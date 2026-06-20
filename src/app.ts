@@ -1,58 +1,179 @@
-import { OsEventTypeList } from '@evenrealities/even_hub_sdk'
-import { bridge, showStartup, updateDetail } from './glasses'
-import { startRecording, stopAndTranscribe, handleAudioEvent } from './stt'
+import { showStartup, updateDetail, onListSelect } from './glasses'
+import { distanceMeters, bearing, bearingToArrow, formatDistance } from './mock/geo'
+import { startGame, getGameState, arrive } from './mock/api'
+import type { DestinationFromApi, GameState } from './mock/api'
 
-type Step = { title: string; detail: string }
+const ARRIVAL_RADIUS = 20 // メートル
 
-const STEPS: Step[] = [
-  { title: '① 入口の鳥居', detail: '正面の鳥居は江戸期の再建。\n左の石灯籠に注目。' },
-  { title: '② 拝殿の彫刻', detail: '欄間の龍は地元宮大工の作。\nタップで音声解説。' },
-  { title: '③ 御神木',     detail: '樹齢約400年のクスノキ。\n落雷跡が残る。' },
-  { title: '🎤 音声で質問', detail: 'ダブルタップで録音開始。' },
-]
+type Destination = DestinationFromApi & { alive: boolean }
 
-const VOICE_STEP = 3
+let sessionId = ''
+let destinations: Destination[] = []
+let currentLat = 0
+let currentLng = 0
+let heading: number | null = null
+let arrived = false
+let selectedIndex = 0
 
-let selected = 0
-let isRecording = false
+// ── モニター送信 ──────────────────────────────────
+let monitorWs: WebSocket | null = null
 
-async function toggleRecording() {
-  if (!isRecording) {
-    isRecording = true
-    await updateDetail('🔴 録音中...\nダブルタップで停止。')
-    await startRecording((bytes) => {
-      const kb = (bytes / 1024).toFixed(1)
-      void updateDetail(`🔴 録音中... ${kb} KB`)
-    })
-  } else {
-    isRecording = false
-    await updateDetail('⏳ 文字起こし中...')
-    const text = await stopAndTranscribe()
-    await updateDetail(text || '（認識できませんでした）')
+function startMonitor() {
+  const wsUrl = location.origin.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/display/push'
+  const connect = () => {
+    monitorWs = new WebSocket(wsUrl)
+    monitorWs.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        if (typeof data.select === 'number') {
+          selectedIndex = Math.min(data.select, destinations.length - 1)
+        }
+      } catch {}
+    }
+    monitorWs.onclose = () => setTimeout(connect, 2000)
   }
+  connect()
 }
 
+function pushMonitor(left: string[], right: string) {
+  if (monitorWs?.readyState !== WebSocket.OPEN) return
+  monitorWs.send(JSON.stringify({ left, right, selectedIndex }))
+}
+
+// ── GPS（startCompassのWebSocketで受信）──────────
+function startGPS() { /* compass.html経由でWebSocketから受信 */ }
+
+// ── コンパス＋GPS（WebSocket経由で受信）──────────
+function startCompass() {
+  const wsUrl = location.origin.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/compass'
+  const connect = () => {
+    const ws = new WebSocket(wsUrl)
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data)
+      if (typeof data.heading === 'number') heading = data.heading
+      if (typeof data.lat === 'number') currentLat = data.lat
+      if (typeof data.lng === 'number') currentLng = data.lng
+    }
+    ws.onclose = () => setTimeout(connect, 2000)
+  }
+  connect()
+}
+
+// ── 表示更新 ──────────────────────────────────────
+function buildRightPane(): string {
+  const target = destinations[selectedIndex]
+  if (!target) return '---'
+
+  const aliveDests = destinations.filter(d => d.alive)
+
+  if (!target.alive) {
+    return [
+      target.name,
+      '',
+      'TERMINATED',
+      '',
+      `${aliveDests.length}/${destinations.length} ALIVE`,
+    ].join('\n')
+  }
+
+  const dist = distanceMeters(currentLat, currentLng, target.lat, target.lng)
+  const absBearing = bearing(currentLat, currentLng, target.lat, target.lng)
+  const arrow = bearingToArrow(absBearing, heading)
+
+  return [
+    target.name,
+    '',
+    `   ${arrow}`,
+    '',
+    `  ${formatDistance(dist)}`,
+    '',
+    `${aliveDests.length}/${destinations.length} ALIVE`,
+  ].join('\n')
+}
+
+function buildLeftTitles(): string[] {
+  return destinations.map(d => d.alive ? `● ${d.name}` : `× ${d.name}`)
+}
+
+// ── 表示ループ（コンパス反映用に定期更新）────────
+function startDisplayLoop() {
+  let isUpdating = false
+  setInterval(async () => {
+    if (arrived || !sessionId || currentLat === 0 || isUpdating) return
+    isUpdating = true
+    try {
+    const right = buildRightPane()
+    await updateDetail(right)
+    pushMonitor(buildLeftTitles(), right)
+
+    // 到着判定
+    for (const dest of destinations) {
+      if (!dest.alive) continue
+      const dist = distanceMeters(currentLat, currentLng, dest.lat, dest.lng)
+      if (dist <= ARRIVAL_RADIUS) {
+        arrived = true
+        const res = await arrive(sessionId, dest.id)
+        await updateDetail(
+          res.result === 'correct'
+            ? `FATE REACHED\n\n✓ ${dest.name}\n\nクリア！`
+            : `CAPTURED\n\n✗ ${dest.name}\n\nゲームオーバー`
+        )
+        return
+      }
+    }
+    } finally {
+      isUpdating = false
+    }
+  }, 200)
+}
+
+// ── Podステータスのポーリング ─────────────────────
+function startPolling() {
+  setInterval(async () => {
+    if (arrived || !sessionId) return
+    const state: GameState = await getGameState(sessionId)
+    const changed = state.destinations.some(s => {
+      const local = destinations.find(d => d.id === s.id)
+      return local && local.alive !== s.alive
+    })
+    if (changed) {
+      destinations = destinations.map(d => ({
+        ...d,
+        alive: state.destinations.find(s => s.id === d.id)?.alive ?? d.alive,
+      }))
+      const left = buildLeftTitles()
+      const right = buildRightPane()
+      await showStartup(left, right)
+      pushMonitor(left, right)
+    }
+  }, 3000)
+}
+
+
+// ── エントリポイント ──────────────────────────────
 export async function start() {
-  await showStartup(STEPS.map(s => s.title), STEPS[selected].detail)
+  await updateDetail('接続中...')
 
-  bridge.onEvenHubEvent((event) => {
-    // リスト選択移動
-    if (event.listEvent && typeof event.listEvent.currentSelectItemIndex === 'number') {
-      selected = event.listEvent.currentSelectItemIndex
-      if (!isRecording) void updateDetail(STEPS[selected].detail)
-    }
+  const game = await startGame()
+  sessionId = game.sessionId
+  destinations = game.destinations.map(d => ({ ...d, alive: true }))
 
-    // ダブルタップで音声ステップの録音トグル
-    if (
-      event.listEvent?.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT &&
-      selected === VOICE_STEP
-    ) {
-      void toggleRecording()
-    }
+  await showStartup(buildLeftTitles(), buildRightPane())
 
-    // PCM ストリームをバッファに蓄積
-    if (event.audioEvent) {
-      handleAudioEvent(event.audioEvent.audioPcm)
-    }
-  })
+  onListSelect(
+    async (index) => {
+      selectedIndex = index
+      const right = buildRightPane()
+      await updateDetail(right)
+      pushMonitor(buildLeftTitles(), right)
+    },
+    () => destinations.length,
+    (raw) => { if (monitorWs?.readyState === WebSocket.OPEN) monitorWs.send(JSON.stringify({ debug: raw })) },
+  )
+
+  startGPS()
+  startDisplayLoop()
+  startPolling()
+  startCompass()
+  startMonitor()
 }

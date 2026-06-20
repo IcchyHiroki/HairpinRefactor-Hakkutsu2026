@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compass Bridge</title>
+  <style>
+    body { margin: 0; background: #000; color: #4f4; font-family: monospace;
+           display: flex; flex-direction: column; align-items: center;
+           justify-content: center; min-height: 100vh; gap: 20px; }
+    button { padding: 16px 32px; font-size: 18px; background: #1a3a1a;
+             color: #4f4; border: 2px solid #2a5a2a; border-radius: 8px;
+             cursor: pointer; font-family: monospace; }
+    #status { font-size: 14px; color: #666; }
+    #heading { font-size: 48px; }
+  </style>
+</head>
+<body>
+  <div id="heading">--°</div>
+  <div id="status">ボタンを押してコンパスを開始</div>
+  <button id="btn">コンパス開始</button>
+
+  <script>
+    const headingEl = document.getElementById('heading')
+    const statusEl = document.getElementById('status')
+    const btn = document.getElementById('btn')
+
+    const wsUrl = location.origin.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/compass/send'
+    let ws = null
+    let currentHeading = null
+
+    function connectWS() {
+      ws = new WebSocket(wsUrl)
+      ws.onopen = () => statusEl.textContent = 'サーバー接続済み ✓'
+      ws.onclose = () => {
+        statusEl.textContent = '再接続中...'
+        setTimeout(connectWS, 2000)
+      }
+    }
+
+    let currentLat = null, currentLng = null
+
+    function startGPS() {
+      if (!navigator.geolocation) return
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          currentLat = pos.coords.latitude
+          currentLng = pos.coords.longitude
+          if (pos.coords.heading != null && !isNaN(pos.coords.heading)) {
+            currentHeading = pos.coords.heading
+          }
+          send()
+        },
+        (err) => statusEl.textContent = 'GPS error: ' + err.message,
+        { enableHighAccuracy: true, maximumAge: 1000 }
+      )
+    }
+
+    function startCompass() {
+      const handler = (e) => {
+        const h = e.webkitCompassHeading ?? (e.alpha != null ? (360 - e.alpha) % 360 : null)
+        if (h == null) return
+        currentHeading = h
+        headingEl.textContent = Math.round(h) + '°'
+        send()
+      }
+      window.addEventListener('deviceorientationabsolute', handler)
+      window.addEventListener('deviceorientation', handler)
+    }
+
+    function send() {
+      if (ws?.readyState !== WebSocket.OPEN) return
+      ws.send(JSON.stringify({ heading: currentHeading, lat: currentLat, lng: currentLng }))
+    }
+
+    btn.addEventListener('click', async () => {
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const state = await DeviceOrientationEvent.requestPermission()
+        if (state !== 'granted') { statusEl.textContent = '許可が必要です'; return }
+      }
+      btn.style.display = 'none'
+      connectWS()
+      startCompass()
+      startGPS()
+    })
+  </script>
+</body>
+</html>

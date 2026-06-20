@@ -1,13 +1,35 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>my-g2-app</title>
+    <title>G2 App</title>
+    <style>
+      body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+      #compass-btn {
+        padding: 20px 40px;
+        font-size: 18px;
+        background: #1a3a1a;
+        color: #4f4;
+        border: 2px solid #2a5a2a;
+        border-radius: 8px;
+        cursor: pointer;
+        font-family: monospace;
+        letter-spacing: 2px;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <button id="compass-btn">コンパスを有効にして開始</button>
+    <script>
+      // 古いService Workerをすべて削除
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          regs.forEach(r => r.unregister())
+        })
+      }
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

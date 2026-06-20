@@ -5,6 +5,7 @@ import {
   ListItemContainerProperty,
   TextContainerProperty,
   TextContainerUpgrade,
+  OsEventTypeList,
 } from '@evenrealities/even_hub_sdk'
 
 export const bridge = await waitForEvenAppBridge()
@@ -48,4 +49,39 @@ export async function showStartup(titles: string[], detail: string) {
 // 詳細だけ差し替え（ちらつき無し）
 export async function updateDetail(content: string) {
   await bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: TEXT_ID, content }))
+}
+
+// リスト選択イベントを購読
+export function onListSelect(
+  callback: (index: number) => void,
+  getCount: () => number,
+  onRawEvent?: (raw: string) => void,
+): () => void {
+  let currentIdx = 0
+  return bridge.onEvenHubEvent((event) => {
+    onRawEvent?.(JSON.stringify(event.jsonData ?? event))
+
+    const isListEvent = event.listEvent != null
+      || event.jsonData?.containerID === LIST_ID
+      || event.jsonData?.containerName === 'tiles'
+
+    const idx = event.listEvent?.currentSelectItemIndex
+      ?? (typeof event.jsonData?.currentSelectItemIndex === 'number' ? event.jsonData.currentSelectItemIndex : null)
+      ?? (isListEvent ? 0 : null)
+
+    if (idx != null) {
+      currentIdx = idx
+      callback(currentIdx)
+      return
+    }
+
+    const eventType = event.listEvent?.eventType
+    if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+      currentIdx = Math.min(currentIdx + 1, getCount() - 1)
+      callback(currentIdx)
+    } else if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+      currentIdx = Math.max(currentIdx - 1, 0)
+      callback(currentIdx)
+    }
+  })
 }
