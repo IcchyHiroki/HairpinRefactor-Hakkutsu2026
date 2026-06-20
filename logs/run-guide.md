@@ -7,15 +7,79 @@
 
 ---
 
-## 1. クラスタ全体の起動
+## 0. 環境構築
+
+### 0a. パッケージインストール（Ubuntu）
+
+Docker ドライバ推奨。Docker・kubectl・minikube を順にインストールする。
 
 ```bash
-# GameServerSet Controller が動いているか確認
+# --- 事前準備 ---
+sudo apt-get update
+sudo apt-get install -y curl ca-certificates apt-transport-https
+
+# --- Docker（minikube のドライバ用）---
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER && newgrp docker   # sudo なしで docker 使えるように
+
+# --- kubectl ---
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+rm kubectl
+
+# --- minikube ---
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+rm minikube-linux-amd64
+```
+
+`newgrp docker` を打ちたくない場合は、一度ログアウト→ログインでグループが反映される。
+
+### 0b. minikube 起動 & 接続確認
+
+```bash
+# minikube 起動（Docker ドライバ指定）
+minikube start --driver=docker
+
+# minikube が起動していること
+minikube status
+# → host: Running / kubelet: Running / apiserver: Running
+
+# kubectl が minikube に接続できていること
+kubectl config current-context   # → minikube
+kubectl cluster-info             # → control plane の URL
+kubectl get nodes                # → minikube  Ready
+```
+
+## 1. クラスタ全体の起動
+
+### 1a. CRD をインストール
+
+```bash
+kubectl apply --server-side -f config/crd/bases/
+```
+
+### 1b. GameServerSet Controller をビルド & デプロイ
+
+```bash
+eval $(minikube docker-env)
+docker build -t controller:latest .
+kubectl apply -f deploy-controller.yaml
+```
+
+**起動を確認:**
+
+```bash
+kubectl wait --for=condition=available deploy/gss-controller --timeout=60s
+# → deployment.apps/gss-controller condition met
+
 kubectl get deploy gss-controller
 # → 1/1 READY
+```
 
-# ゲーム用リソース（Deployment / Service / RBAC / GameServerSet CR）を一括デプロイ
-eval $(minikube docker-env)
+### 1c. ゲーム用リソースをデプロイ
+
+```bash
 cd hairpin
 docker build -t hairpin-server:latest .
 kubectl apply -k deploy/
@@ -132,6 +196,12 @@ K8s API がない環境では、ゲームサーバーは自動的に in-memory �
 ```bash
 # ゲーム関連リソースを削除
 kubectl delete -k hairpin/deploy/
+
+# GameServerSet Controller を削除
+kubectl delete -f deploy-controller.yaml
+
+# CRD を削除
+kubectl delete --server-side -f config/crd/bases/
 
 # 既存のゲーム Pod（finalizer が原因で削除できない場合）
 kubectl get pod -l game.example.com/gameserverset-name=hairpin-game -o name \
