@@ -77,7 +77,7 @@ minikube service hairpin-server
 
 | 仕組み | 説明 |
 |--------|------|
-| GameServerSet CR `hairpin-game` | replicas=5 で5つの Pod を管理 |
+| GameServerSet CR `hairpin-game` | replicas=2 で2つの Pod を管理 |
 | Pod ラベル `game.example.com/pod-index` | 各 Pod を目的地 ID (0-4) にマッピング |
 | ゲーム進行 | 走行距離に応じて `kubectl delete pod` → 27s後復活 |
 | 復活後の同期 | `getSession()` が K8s API で Pod 生死を確認 |
