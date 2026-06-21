@@ -67,6 +67,8 @@ docker build -t controller:latest .
 kubectl apply -f deploy-controller.yaml
 ```
 
+> **注意**: ルートの `Dockerfile` は Go Controller 用です。もし `Dockerfile` が誤って Node.js の内容（`FROM node:22-alpine`）で上書きされていた場合は、`git show main:Dockerfile > Dockerfile` で復元してからビルドしてください。
+
 **起動を確認:**
 
 ```bash
