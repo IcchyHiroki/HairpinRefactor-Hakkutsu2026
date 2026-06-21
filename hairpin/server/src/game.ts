@@ -36,15 +36,24 @@ export async function getSession(sessionId: string) {
   if (!session) return null
 
   // K8s Pod の実在状況を確認して alive 状態を上書きする
-  const destinationIds = DESTINATIONS.map(d => d.id)
-  const podStatuses = await checkPodStatuses(destinationIds)
-  console.log('getSession k8s podStatuses:', JSON.stringify(podStatuses))
-  // メモリ状態と K8s 実態を統合
+  const podStatuses = await checkPodStatuses(DESTINATIONS.map(d => d.id))
+
+  // K8s Pod が復活していたらメモリ状態も alive に戻す
+  for (const p of podStatuses) {
+    const mem = session.pods.find(sp => sp.id === p.id)
+    if (mem && !mem.alive && p.alive) {
+      mem.alive = true
+    }
+  }
+
   const merged = DESTINATIONS.map(d => {
     const mem = session.pods.find(p => p.id === d.id)
     const k8s = podStatuses.find(p => p.id === d.id)
-    // メモリ上で dead なら dead。K8s Pod が存在しない場合も dead（復活ポーリング用）
-    return { id: d.id, name: d.name, alive: mem ? mem.alive && (k8s ? k8s.alive : true) : true }
+    return {
+      id: d.id,
+      name: d.name,
+      alive: k8s ? k8s.alive : (mem ? mem.alive : true),
+    }
   })
 
   return {
