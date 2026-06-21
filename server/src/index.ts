@@ -14,46 +14,36 @@ app.get('/api/game/current', (c) => {
   return c.json({ sessionId })
 })
 
-app.get('/api/nfc/:destinationId', (c) => {
+type NfcResult = { title: string; msg: string; color: string; score: string }
+let pendingNfc: NfcResult | null = null
+
+function processNfc(destinationId: number): NfcResult {
   const sessionId = getCurrentSessionId()
-  if (!sessionId) return c.html(nfcHtml('エラー', 'ゲームが開始されていません', '#f44', '-'))
+  if (!sessionId) return { title: 'エラー', msg: 'ゲームが開始されていません', color: '#f44', score: '-' }
+  const result = nfcTap(sessionId, destinationId)
+  const score = String(result.score)
+  const msg = result.message
+  if (result.result === 'correct')    return { title: '🎯 クリア！',   msg, color: '#ff4', score }
+  if (result.result === 'fake_bonus') return { title: '⚡ ボーナス！', msg, color: '#f4f', score }
+  if (result.result === 'fake_hit')   return { title: '💥 ヒット！',   msg, color: '#f84', score }
+  if (result.result === 'pod_down')   return { title: '⏳ 復活待ち',   msg, color: '#888', score }
+  return { title: 'エラー', msg, color: '#f44', score }
+}
 
-  const result = nfcTap(sessionId, Number(c.req.param('destinationId')))
-
-  if (result.result === 'correct') {
-    return c.html(nfcHtml('🎯 クリア！', result.message, '#ff4', String(result.score)))
-  } else if (result.result === 'fake_bonus') {
-    return c.html(nfcHtml('⚡ ボーナス！', result.message, '#f4f', String(result.score)))
-  } else if (result.result === 'fake_hit') {
-    return c.html(nfcHtml('💥 ヒット！', result.message, '#f84', String(result.score)))
-  } else if (result.result === 'pod_down') {
-    return c.html(nfcHtml('⏳ 復活待ち', result.message, '#888', String(result.score)))
-  } else {
-    return c.html(nfcHtml('エラー', result.message, '#f44', '-'))
-  }
+// compass.html がポーリングで取得するエンドポイント
+app.get('/api/nfc/pending', (c) => {
+  const r = pendingNfc; pendingNfc = null
+  return c.json(r ?? null)
 })
 
-function nfcHtml(title: string, message: string, color: string, score: string): string {
-  return `<!doctype html><html lang="ja"><head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>NFC</title>
-<style>
-  body{margin:0;background:#000;color:#4f4;font-family:monospace;
-       display:flex;flex-direction:column;align-items:center;
-       justify-content:center;min-height:100vh;gap:16px;padding:20px;}
-  .title{font-size:36px;font-weight:bold;color:${color};}
-  .msg{font-size:16px;color:#aaa;text-align:center;}
-  .score-label{font-size:12px;color:#666;}
-  .score{font-size:64px;font-weight:bold;}
-</style>
-</head><body>
-<div class="title">${title}</div>
-<div class="msg">${message}</div>
-<div class="score-label">SCORE</div>
-<div class="score">${score}</div>
-</body></html>`
-}
+// NFC タグ URL：処理して結果を保存 → compass.html にリダイレクト
+app.get('/api/nfc/:destinationId', (c) => {
+  const id = Number(c.req.param('destinationId'))
+  console.log(`[NFC] tap destinationId=${id}`)
+  pendingNfc = processNfc(id)
+  console.log(`[NFC] result: ${JSON.stringify(pendingNfc)}`)
+  return c.redirect('/compass.html')
+})
 
 app.post('/api/game/:sessionId/begin', (c) => {
   const ok = beginGame(c.req.param('sessionId'))

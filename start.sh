@@ -62,7 +62,11 @@ else
 fi
 
 # QRを別ターミナルで表示
-open_terminal "cd '$DIR' && echo '=== Even G2 接続用 QR ===' && npx evenhub qr --url $NGROK_URL && echo '' && echo '=== compass.html (スマホ用) ===' && echo '$COMPASS_URL' && npx evenhub qr --url '$COMPASS_URL'"
+if [ -n "$CLOUDFLARE_URL" ]; then
+  open_terminal "cd '$DIR' && echo '=== Even G2 接続用 QR ===' && npx evenhub qr --url $NGROK_URL && echo '' && echo '=== compass.html (スマホ用) ===' && echo '$COMPASS_URL' && npx evenhub qr --url '$COMPASS_URL'"
+else
+  open_terminal "cd '$DIR' && echo '=== Even G2 接続用 QR ===' && npx evenhub qr --url $NGROK_URL && echo '' && echo '=== compass.html: cloudflared URL取得失敗 ==='"
+fi
 
 # サーバーログを別ターミナルで表示
 open_terminal "kubectl logs -f deployment/hairpin-server"

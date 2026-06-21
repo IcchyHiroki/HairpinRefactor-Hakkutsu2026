@@ -13,6 +13,19 @@
              cursor: pointer; font-family: monospace; }
     #status { font-size: 14px; color: #666; }
     #heading { font-size: 48px; }
+
+    #nfc-overlay {
+      display: none;
+      position: fixed; inset: 0; background: rgba(0,0,0,0.93);
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px; z-index: 100;
+    }
+    #nfc-overlay.show { display: flex; }
+    #nfc-title { font-size: 36px; font-weight: bold; }
+    #nfc-msg { font-size: 16px; color: #aaa; text-align: center; }
+    #nfc-score-label { font-size: 12px; color: #666; }
+    #nfc-score { font-size: 64px; font-weight: bold; }
+    #nfc-tap { font-size: 13px; color: #555; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -20,22 +33,47 @@
   <div id="status">ボタンを押してコンパスを開始</div>
   <button id="btn">コンパス開始</button>
 
+  <div id="nfc-overlay">
+    <div id="nfc-title"></div>
+    <div id="nfc-msg"></div>
+    <div id="nfc-score-label">SCORE</div>
+    <div id="nfc-score"></div>
+    <div id="nfc-tap">タップして閉じる</div>
+  </div>
+
   <script>
     const headingEl = document.getElementById('heading')
-    const statusEl = document.getElementById('status')
-    const btn = document.getElementById('btn')
+    const statusEl  = document.getElementById('status')
+    const btn       = document.getElementById('btn')
+    const overlay   = document.getElementById('nfc-overlay')
 
+    function showNfcOverlay(d) {
+      document.getElementById('nfc-title').textContent = d.title || ''
+      document.getElementById('nfc-title').style.color = d.color || '#4f4'
+      document.getElementById('nfc-msg').textContent   = d.msg   || ''
+      document.getElementById('nfc-score').textContent = d.score || ''
+      overlay.classList.add('show')
+    }
+    overlay.addEventListener('click', () => overlay.classList.remove('show'))
+
+    // サーバーの pending NFC 結果をポーリング（800ms）
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/nfc/pending')
+        const data = await res.json()
+        if (data) showNfcOverlay(data)
+      } catch {}
+    }, 800)
+
+    // ── WebSocket ──
     const wsUrl = location.origin.replace('https://', 'wss://').replace('http://', 'ws://') + '/ws/compass/send'
     let ws = null
     let currentHeading = null
 
     function connectWS() {
       ws = new WebSocket(wsUrl)
-      ws.onopen = () => statusEl.textContent = 'サーバー接続済み ✓'
-      ws.onclose = () => {
-        statusEl.textContent = '再接続中...'
-        setTimeout(connectWS, 2000)
-      }
+      ws.onopen  = () => statusEl.textContent = 'サーバー接続済み ✓'
+      ws.onclose = () => { statusEl.textContent = '再接続中...'; setTimeout(connectWS, 2000) }
     }
 
     let currentLat = null, currentLng = null
@@ -46,9 +84,7 @@
         (pos) => {
           currentLat = pos.coords.latitude
           currentLng = pos.coords.longitude
-          if (pos.coords.heading != null && !isNaN(pos.coords.heading)) {
-            currentHeading = pos.coords.heading
-          }
+          if (pos.coords.heading != null && !isNaN(pos.coords.heading)) currentHeading = pos.coords.heading
           send()
         },
         (err) => statusEl.textContent = 'GPS error: ' + err.message,
@@ -57,15 +93,23 @@
     }
 
     function startCompass() {
-      const handler = (e) => {
+      let hasAbsolute = false
+      window.addEventListener('deviceorientationabsolute', (e) => {
+        hasAbsolute = true
+        const h = e.webkitCompassHeading ?? (e.alpha != null ? (360 - e.alpha) % 360 : null)
+        if (h == null) return
+        currentHeading = h
+        headingEl.textContent = Math.round(h) + '° (abs)'
+        send()
+      })
+      window.addEventListener('deviceorientation', (e) => {
+        if (hasAbsolute) return
         const h = e.webkitCompassHeading ?? (e.alpha != null ? (360 - e.alpha) % 360 : null)
         if (h == null) return
         currentHeading = h
         headingEl.textContent = Math.round(h) + '°'
         send()
-      }
-      window.addEventListener('deviceorientationabsolute', handler)
-      window.addEventListener('deviceorientation', handler)
+      })
     }
 
     function send() {
@@ -73,16 +117,24 @@
       ws.send(JSON.stringify({ heading: currentHeading, lat: currentLat, lng: currentLng }))
     }
 
-    btn.addEventListener('click', async () => {
+    async function doStart() {
       if (typeof DeviceOrientationEvent.requestPermission === 'function') {
         const state = await DeviceOrientationEvent.requestPermission()
         if (state !== 'granted') { statusEl.textContent = '許可が必要です'; return }
       }
+      localStorage.setItem('compassGranted', '1')
       btn.style.display = 'none'
       connectWS()
       startCompass()
       startGPS()
-    })
+    }
+
+    btn.addEventListener('click', doStart)
+
+    // NFC リダイレクトでページリロードになった場合の自動スタート
+    if (localStorage.getItem('compassGranted') === '1') {
+      doStart()
+    }
   </script>
 </body>
 </html>

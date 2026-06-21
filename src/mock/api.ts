@@ -42,6 +42,14 @@ export async function getResult(sessionId: string): Promise<GameResult> {
   return res.json()
 }
 
+export async function updateRunDistance(sessionId: string, distanceMeters: number): Promise<void> {
+  await fetch(`${BASE}/game/${sessionId}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ distanceMeters }),
+  })
+}
+
 export async function arrive(sessionId: string, destinationId: number): Promise<{ result: string; message: string }> {
   const res = await fetch(`${BASE}/game/${sessionId}/arrive`, {
     method: 'POST',

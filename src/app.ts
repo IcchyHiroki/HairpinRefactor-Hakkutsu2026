@@ -1,6 +1,6 @@
 import { showStartup, rebuildPage, updateDetail, onListSelect } from './glasses'
 import { distanceMeters, bearing, bearingToArrow, formatDistance } from './mock/geo'
-import { beginGame, getGameState, getResult } from './mock/api'
+import { beginGame, getGameState, getResult, updateRunDistance } from './mock/api'
 import type { DestinationFromApi, GameState, GameResult } from './mock/api'
 
 type Destination = DestinationFromApi & { alive: boolean; onceFallen: boolean }
@@ -18,6 +18,10 @@ let compassReady = false
 let displayLoopId: ReturnType<typeof setInterval> | null = null
 let pollingId: ReturnType<typeof setInterval> | null = null
 let statusId: ReturnType<typeof setInterval> | null = null
+
+let prevLat = 0
+let prevLng = 0
+let pendingDistance = 0
 
 // ── モニター送信 ──────────────────────────────────
 let monitorWs: WebSocket | null = null
@@ -55,8 +59,18 @@ function startCompass() {
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data)
       if (typeof data.heading === 'number') heading = data.heading
-      if (typeof data.lat === 'number') { currentLat = data.lat; compassReady = true }
-      if (typeof data.lng === 'number') currentLng = data.lng
+      if (typeof data.lat === 'number') {
+        const newLat = data.lat
+        const newLng = typeof data.lng === 'number' ? data.lng : currentLng
+        if (gameStarted && !gameEnded && prevLat !== 0) {
+          const d = distanceMeters(prevLat, prevLng, newLat, newLng)
+          if (d > 3 && d < 50) pendingDistance += d
+        }
+        prevLat = newLat
+        currentLat = newLat
+        compassReady = true
+      }
+      if (typeof data.lng === 'number') { currentLng = data.lng; prevLng = data.lng }
     }
     ws.onclose = () => { compassReady = false; setTimeout(connect, 2000) }
   }
@@ -121,7 +135,7 @@ function startDisplayLoop() {
   let isUpdating = false
   let lastLeft = ''
   displayLoopId = setInterval(async () => {
-    if (!sessionId || currentLat === 0 || isUpdating || gameEnded) return
+    if (!sessionId || currentLat === 0 || isUpdating || gameEnded || !gameStarted) return
     isUpdating = true
     try {
       const left = buildLeftTitles()
@@ -146,7 +160,9 @@ function startPolling() {
   let cleared = false
   pollingId = setInterval(async () => {
     if (!sessionId) return
-    const state: GameState = await getGameState(sessionId)
+    const capturedSession = sessionId
+    const state: GameState = await getGameState(capturedSession)
+    if (sessionId !== capturedSession) return
 
     if (state.status === 'clear' && !cleared) {
       cleared = true
@@ -168,12 +184,25 @@ function startPolling() {
         const s = state.destinations.find(s => s.id === d.id)
         return { ...d, alive: s?.alive ?? d.alive, onceFallen: s?.onceFallen ?? d.onceFallen }
       })
-      const left = buildLeftTitles()
-      const right = buildRightPane()
-      await rebuildPage(left, right)
-      pushMonitor(left, right)
+      // 選択中の目的地が terminated になったら生存中の最初に切り替え
+      if (!destinations[selectedIndex]?.alive) {
+        const firstAlive = destinations.findIndex(d => d.alive)
+        if (firstAlive >= 0) selectedIndex = firstAlive
+      }
+      // 描画は display loop に任せる（rebuildPage の競合を避ける）
+      pushMonitor(buildLeftTitles(), buildRightPane())
     }
   }, 3000)
+}
+
+// ── 移動距離をサーバーに定期送信 ─────────────────
+function startDistanceReporting() {
+  setInterval(async () => {
+    if (!sessionId || !gameStarted || gameEnded || pendingDistance < 1) return
+    const d = pendingDistance
+    pendingDistance = 0
+    await updateRunDistance(sessionId, d).catch(() => { pendingDistance += d })
+  }, 10000)
 }
 
 // ── 新セッション開始（インプレースリセット）────────
@@ -186,6 +215,9 @@ async function loadNewSession(newSessionId: string) {
   gameEnded = false
   gameStarted = false
   selectedIndex = 0
+  prevLat = 0
+  prevLng = 0
+  pendingDistance = 0
 
   const state = await getGameState(sessionId)
   destinations = state.destinations.map(d => ({ ...d, alive: d.alive ?? true, onceFallen: d.onceFallen ?? false }))
@@ -263,10 +295,15 @@ export async function start() {
         pushMonitor(left, right)
         startDisplayLoop()
         startPolling()
+        startDistanceReporting()
         return
       }
       if (gameEnded) return
       selectedIndex = index
+      if (!destinations[selectedIndex]?.alive) {
+        const firstAlive = destinations.findIndex(d => d.alive)
+        if (firstAlive >= 0) selectedIndex = firstAlive
+      }
       const right = buildRightPane()
       await updateDetail(right)
       pushMonitor(buildLeftTitles(), right)
